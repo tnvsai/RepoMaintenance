@@ -239,7 +239,57 @@ def check_component_tag(component, cmake_file_dir):
             pass
     
     # If we couldn't determine the actual tag, return an error
-    return False, None, expected_tag, f"Could not determine the actual tag for {module_name} at {resolved_path}"
+    error_message = f"Could not determine the actual tag for {module_name} at {resolved_path}"
+    
+    
+    return False, None, expected_tag, error_message
+
+# Keep the existing function as is
+def check_parent_directories_for_changes(path):
+    """
+    Check parent directories for local changes in git repositories.
+    
+    Args:
+        path (str): Path to start checking from
+        
+    Returns:
+        str: Path of the parent directory with local changes, or None if no changes found
+    """
+    # Existing implementation here...
+    # Get the absolute path
+    abs_path = os.path.abspath(path)
+    
+    # Check each parent directory
+    current_path = abs_path
+    while True:
+        parent_path = os.path.dirname(current_path)
+        
+        # Stop if we've reached the root directory
+        if parent_path == current_path:
+            break
+        
+        # Check if this directory is a git repository
+        try:
+            # Check if it's a git repository
+            is_git_repo = subprocess.run(['git', '-C', parent_path, 'rev-parse', '--is-inside-work-tree'], 
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).returncode == 0
+            
+            if is_git_repo:
+                # Check if there are uncommitted changes
+                uncommitted_changes = subprocess.run(['git', '-C', parent_path, 'status', '--porcelain'], 
+                                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout.strip() != ""
+                
+                if uncommitted_changes:
+                    return parent_path
+        except Exception:
+            # Ignore errors and continue checking parent directories
+            pass
+        
+        # Move up to the parent directory
+        current_path = parent_path
+    
+    # No parent directory with local changes found
+    return None
 
 def main():
     """
@@ -352,6 +402,8 @@ def main():
                 
                 if misaligned_components:
                     f.write(f"Misaligned components: {len(misaligned_components)} ({percentage:.2f}%)\n\n")
+                    
+                    
                     f.write("Details of misaligned components:\n")
                     for component in misaligned_components:
                         f.write(f"- {component['module_name']} (target: {component['target']})\n")

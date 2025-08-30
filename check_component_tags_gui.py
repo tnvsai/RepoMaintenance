@@ -8,6 +8,7 @@ including component tag checking and other features to be added in the future.
 
 import os
 import sys
+import re
 import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -70,9 +71,12 @@ class ComponentTagCheckerGUI:
         # Keep verbose var but set to True by default and don't show the checkbox
         self.verbose_var = tk.BooleanVar(value=True)
         
-        # Right side - Run button
+        # Right side - Run and Clear buttons
         target_right_frame = ttk.Frame(target_control_frame)
         target_right_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.clear_button = ttk.Button(target_right_frame, text="Clear", command=self.clear_results, width=8)
+        self.clear_button.pack(side=tk.RIGHT, padx=2)
         
         self.run_button = ttk.Button(target_right_frame, text="Run Check", command=self.run_check, width=10)
         self.run_button.pack(side=tk.RIGHT, padx=2)
@@ -112,6 +116,10 @@ class ComponentTagCheckerGUI:
         self.misaligned_frame = ttk.Frame(self.notebook, padding="5")
         self.notebook.add(self.misaligned_frame, text="Misaligned Components")
         
+        # Create the local changes frame (third tab)
+        self.local_changes_frame = ttk.Frame(self.notebook, padding="5")
+        self.notebook.add(self.local_changes_frame, text="Local Changes")
+        
         # Create a frame for the misaligned components list
         list_frame = ttk.Frame(self.misaligned_frame)
         list_frame.pack(fill=tk.BOTH, expand=True)
@@ -132,6 +140,34 @@ class ComponentTagCheckerGUI:
         self.tree.column("Actual Tag", width=100)
         self.tree.column("Status", width=250)
         
+        # Create a frame for the local changes list
+        local_changes_list_frame = ttk.Frame(self.local_changes_frame)
+        local_changes_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create a treeview for the components with local changes
+        self.local_changes_tree = ttk.Treeview(local_changes_list_frame, 
+                                              columns=("Module", "Target", "Path", "Change Location", "Status"), 
+                                              show="headings")
+        self.local_changes_tree.heading("Module", text="Module")
+        self.local_changes_tree.heading("Target", text="Target")
+        self.local_changes_tree.heading("Path", text="Path")
+        self.local_changes_tree.heading("Change Location", text="Change Location")
+        self.local_changes_tree.heading("Status", text="Status")
+        
+        self.local_changes_tree.column("Module", width=150)
+        self.local_changes_tree.column("Target", width=80)
+        self.local_changes_tree.column("Path", width=250)
+        self.local_changes_tree.column("Change Location", width=250)
+        self.local_changes_tree.column("Status", width=150)
+        
+        # Add a scrollbar to the local changes treeview
+        local_changes_tree_scroll = ttk.Scrollbar(local_changes_list_frame, orient="vertical", command=self.local_changes_tree.yview)
+        self.local_changes_tree.configure(yscrollcommand=local_changes_tree_scroll.set)
+        
+        # Pack the local changes treeview and scrollbar
+        self.local_changes_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        local_changes_tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
         # Add a scrollbar to the treeview
         tree_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll.set)
@@ -140,7 +176,7 @@ class ComponentTagCheckerGUI:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Create a compact button bar
+        # Create a compact button bar for misaligned components tab
         button_frame = ttk.Frame(self.misaligned_frame)
         button_frame.pack(fill=tk.X, pady=2)
         
@@ -149,13 +185,23 @@ class ComponentTagCheckerGUI:
         ttk.Button(button_frame, text="Deselect All", command=self.deselect_all, width=10).pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="Update Selected", command=self.update_selected_components, width=15).pack(side=tk.RIGHT, padx=2)
         
+        # Create a compact button bar for local changes tab
+        local_changes_button_frame = ttk.Frame(self.local_changes_frame)
+        local_changes_button_frame.pack(fill=tk.X, pady=2)
+        
+        # Add buttons for selecting/deselecting all and reverting selected changes
+        ttk.Button(local_changes_button_frame, text="Select All", command=self.select_all_local_changes, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(local_changes_button_frame, text="Deselect All", command=self.deselect_all_local_changes, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(local_changes_button_frame, text="Revert Changes", command=self.revert_selected_changes, width=15).pack(side=tk.RIGHT, padx=2)
+        
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
         status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
-        # Store misaligned components
+        # Store misaligned components and components with local changes
         self.misaligned_components = []
+        self.components_with_local_changes = []
         
         # Try to refresh targets on startup
         self.refresh_targets()
@@ -203,7 +249,9 @@ class ComponentTagCheckerGUI:
             if targets:
                 # Create a horizontal flow of checkboxes
                 for target in targets:
-                    self.target_vars[target] = tk.BooleanVar(value=True)
+                    # Set canfbl target to False by default, all others to True
+                    default_value = False if target.lower() == 'canfbl' else True
+                    self.target_vars[target] = tk.BooleanVar(value=default_value)
                     cb = ttk.Checkbutton(
                         self.targets_frame, 
                         text=target, 
@@ -232,6 +280,30 @@ class ComponentTagCheckerGUI:
         all_selected = all(var.get() for var in self.target_vars.values())
         self.select_all_var.set(all_selected)
     
+    def clear_results(self):
+        """Clear all results from previous checks."""
+        # Clear the output text
+        self.output_text.config(state=tk.NORMAL)
+        self.output_text.delete(1.0, tk.END)
+        self.output_text.config(state=tk.DISABLED)
+        
+        # Clear the treeviews
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        for item in self.local_changes_tree.get_children():
+            self.local_changes_tree.delete(item)
+        
+        # Clear the component lists
+        self.misaligned_components = []
+        self.components_with_local_changes = []
+        
+        # Reset the progress bar
+        self.progress_var.set(0)
+        
+        # Update status
+        self.update_status("Ready")
+    
     def run_check(self):
         """Run the component tag check."""
         cmake_file = self.cmake_file_var.get()
@@ -247,12 +319,9 @@ class ComponentTagCheckerGUI:
             messagebox.showinfo("Info", "Please select at least one target")
             return
         
-        # Disable the run button and clear the output
+        # Disable the run button and clear all previous results
         self.run_button.config(state=tk.DISABLED)
-        self.output_text.config(state=tk.NORMAL)
-        self.output_text.delete(1.0, tk.END)
-        self.output_text.config(state=tk.DISABLED)
-        self.progress_var.set(0)
+        self.clear_results()
         
         # Run the check in a separate thread
         thread = threading.Thread(target=self.run_check_thread, args=(cmake_file, selected_targets, output_file, verbose))
@@ -328,7 +397,6 @@ class ComponentTagCheckerGUI:
                         self.update_output(f"  Expected tag: {expected_tag}")
                     else:
                         self.update_output(f"\nChecking component: {module_name}...", end="")
-                    
                     is_aligned, actual_tag, expected_tag, error_message = check_component_tag(component, cmake_file_dir)
                     
                     if is_aligned:
@@ -368,6 +436,27 @@ class ComponentTagCheckerGUI:
                             error_message
                         ))
                         
+                        # Check if this component has uncommitted changes in its own directory
+                        if "Tag is correct but there are uncommitted changes" in error_message:
+                            # Add to the components with local changes list
+                            self.components_with_local_changes.append({
+                                'target': target_name,
+                                'module_name': module_name,
+                                'path': path,
+                                'change_location': resolve_path(path, cmake_file_dir),
+                                'error_message': error_message,
+                                'change_type': 'self'
+                            })
+                            
+                            # Add to the local changes treeview
+                            self.local_changes_tree.insert("", "end", values=(
+                                module_name,
+                                target_name,
+                                path,
+                                resolve_path(path, cmake_file_dir),
+                                "Has uncommitted changes in component directory"
+                            ))
+                        
                         # No special highlighting for components with commits after tag
             
             # Print summary
@@ -387,6 +476,16 @@ class ComponentTagCheckerGUI:
                 
                 # Switch to the misaligned components tab
                 self.notebook.select(1)
+                
+                # If we have components with local changes, show a message
+                if self.components_with_local_changes:
+                    # Count components with changes in their own directories
+                    self_changes = sum(1 for c in self.components_with_local_changes if c.get('change_type') == 'self')
+                    if self_changes > 0:
+                        self.update_output(f"\nFound {self_changes} components with uncommitted changes in their own directories.")
+                    # Switch to the local changes tab if there are components with local changes
+                    if len(self.components_with_local_changes) > 0:
+                        self.notebook.select(2)
             else:
                 self.update_output(f"All {total_components} components are aligned with their expected tags.")
             
@@ -400,6 +499,15 @@ class ComponentTagCheckerGUI:
                         
                         if self.misaligned_components:
                             f.write(f"Misaligned components: {len(self.misaligned_components)} ({percentage:.2f}%)\n\n")
+                            
+                            # Include information about components with local changes
+                            if self.components_with_local_changes:
+                                # Count components with changes in their own directories
+                                self_changes = sum(1 for c in self.components_with_local_changes if c.get('change_type') == 'self')
+                                if self_changes > 0:
+                                    f.write(f"Components with uncommitted changes in their own directories: {self_changes}\n")
+                                f.write("\n")
+                            
                             f.write("Details of misaligned components:\n")
                             for component in self.misaligned_components:
                                 f.write(f"- {component['module_name']} (target: {component['target']})\n")
@@ -436,14 +544,126 @@ class ComponentTagCheckerGUI:
         self.root.update_idletasks()
     
     def select_all(self):
-        """Select all items in the treeview."""
+        """Select all items in the misaligned components treeview."""
         for item in self.tree.get_children():
             self.tree.selection_add(item)
     
     def deselect_all(self):
-        """Deselect all items in the treeview."""
+        """Deselect all items in the misaligned components treeview."""
         for item in self.tree.get_children():
             self.tree.selection_remove(item)
+    
+    def select_all_local_changes(self):
+        """Select all items in the local changes treeview."""
+        for item in self.local_changes_tree.get_children():
+            self.local_changes_tree.selection_add(item)
+    
+    def deselect_all_local_changes(self):
+        """Deselect all items in the local changes treeview."""
+        for item in self.local_changes_tree.get_children():
+            self.local_changes_tree.selection_remove(item)
+    
+    def revert_selected_changes(self):
+        """Revert changes for selected components in the local changes tab."""
+        selected_items = self.local_changes_tree.selection()
+        if not selected_items:
+            messagebox.showinfo("Info", "No components selected")
+            return
+        
+        # Confirm revert
+        if not messagebox.askyesno("Confirm Revert", "Are you sure you want to revert changes for the selected components? This will discard all uncommitted changes."):
+            return
+        
+        # Get selected components
+        selected_indices = [self.local_changes_tree.index(item) for item in selected_items]
+        selected_components = [self.components_with_local_changes[i] for i in selected_indices]
+        
+        # Revert changes
+        reverted_count = 0
+        failed_count = 0
+        
+        for component in selected_components:
+            try:
+                change_type = component.get('change_type', 'unknown')
+                change_location = component.get('change_location', '')
+                
+                if not change_location:
+                    self.update_output(f"Error: No change location found for {component['module_name']}")
+                    failed_count += 1
+                    continue
+                
+                self.update_status(f"Reverting changes for {component['module_name']}...")
+                
+                # Save current directory
+                original_dir = os.getcwd()
+                
+                # Change to the directory with changes
+                os.chdir(change_location)
+                
+                # Check if it's a git repository
+                is_git_repo = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).returncode == 0
+                
+                if is_git_repo:
+                    # More thorough cleaning of the repository
+                    
+                    # 1. Reset any staged changes
+                    subprocess.run(['git', 'reset', 'HEAD'], 
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    # 2. Discard changes in tracked files
+                    result = subprocess.run(['git', 'checkout', '--force', '.'], 
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    
+                    if result.returncode != 0:
+                        raise Exception(f"Git checkout failed: {result.stderr}")
+                    
+                    # 3. Handle untracked files
+                    untracked_files = subprocess.run(['git', 'ls-files', '--others', '--exclude-standard'], 
+                                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout.strip()
+                    
+                    if untracked_files:
+                        # Ask if user wants to remove untracked files
+                        if messagebox.askyesno("Untracked Files", 
+                                             f"There are untracked files in {change_location}. Do you want to remove them?"):
+                            # Clean untracked files and directories
+                            clean_result = subprocess.run(['git', 'clean', '-fd'], 
+                                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            if clean_result.returncode == 0:
+                                self.update_output(f"Removed untracked files in {change_location}")
+                            else:
+                                self.update_output(f"Warning: Failed to remove untracked files in {change_location}")
+                        else:
+                            self.update_output(f"Warning: Untracked files remain in {change_location}")
+                else:
+                    raise Exception("Not a git repository")
+                
+                # Change back to the original directory
+                os.chdir(original_dir)
+                
+                self.update_output(f"Successfully reverted changes for {component['module_name']} in {change_location}")
+                reverted_count += 1
+                
+            except Exception as e:
+                failed_count += 1
+                self.update_output(f"Error reverting changes for {component['module_name']}: {e}")
+                
+                # Try to change back to the original directory if we're not there
+                try:
+                    if os.getcwd() != original_dir:
+                        os.chdir(original_dir)
+                except:
+                    pass
+        
+        # Show results
+        if failed_count == 0:
+            messagebox.showinfo("Revert Complete", f"Successfully reverted changes for {reverted_count} components")
+        else:
+            messagebox.showwarning("Revert Complete", f"Reverted changes for {reverted_count} components, {failed_count} failed")
+        
+        # Inform user that they need to run the check again to see updated results
+        self.update_output("\nUpdate complete. Run check again to see updated results.")
+        self.update_status("Ready")
     
     def update_selected_components(self):
         """Update selected components to their expected tags."""
@@ -487,13 +707,13 @@ class ComponentTagCheckerGUI:
                         uncommitted_changes = subprocess.run(['git', 'status', '--porcelain'], 
                                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout.strip() != ""
                         
-                        if uncommitted_changes:
-                            # Commit the VERSION file change
-                            subprocess.run(['git', 'add', 'VERSION'], 
-                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                            
-                            subprocess.run(['git', 'commit', '-m', f"Update VERSION file to {component['expected_tag']}"], 
-                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        # Commit all changes, not just the VERSION file
+                        # This ensures we don't leave uncommitted changes that would cause the component to still be misaligned
+                        subprocess.run(['git', 'add', '.'], 
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        
+                        subprocess.run(['git', 'commit', '-m', f"Update component to {component['expected_tag']}"], 
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         
                         # Delete existing tag if it exists (locally)
                         subprocess.run(['git', 'tag', '-d', component['expected_tag']], 
@@ -534,8 +754,9 @@ class ComponentTagCheckerGUI:
         else:
             messagebox.showwarning("Update Complete", f"Updated {updated_count} components, {failed_count} failed")
         
-        # Re-run the check to refresh the display
-        self.run_check()
+        # Inform user that they need to run the check again to see updated results
+        self.update_output("\nChanges reverted. Run check again to see updated results.")
+        self.update_status("Ready")
 
 def main():
     """Main function."""
