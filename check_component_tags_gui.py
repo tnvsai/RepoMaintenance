@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-GUI for the Component Tag Checker.
+GUI for the Repo Maintenance Tool.
 
-This script provides a graphical user interface for the component tag checker.
+This script provides a graphical user interface for repository maintenance tasks,
+including component tag checking and other features to be added in the future.
 """
 
 import os
@@ -25,7 +26,7 @@ MISALIGNED_COMPONENTS = []
 class ComponentTagCheckerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Component Tag Checker")
+        self.root.title("Repo Maintenance")
         self.root.geometry("1000x700")
         self.root.minsize(1000, 700)
         
@@ -36,85 +37,79 @@ class ComponentTagCheckerGUI:
             pass
         
         # Create the main frame
-        main_frame = ttk.Frame(root, padding="10")
+        main_frame = ttk.Frame(root, padding="5")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create the input frame
-        input_frame = ttk.LabelFrame(main_frame, text="Input", padding="10")
-        input_frame.pack(fill=tk.X, pady=5)
+        # Create the top control panel
+        control_panel = ttk.Frame(main_frame)
+        control_panel.pack(fill=tk.X, pady=2)
         
         # CMake file selection
-        ttk.Label(input_frame, text="CMake File:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.cmake_file_var = tk.StringVar(value="S32K/EDx/build.cmake")
-        cmake_file_entry = ttk.Entry(input_frame, textvariable=self.cmake_file_var, width=50)
-        cmake_file_entry.grid(row=0, column=1, sticky=tk.W+tk.E, pady=5, padx=5)
-        ttk.Button(input_frame, text="Browse...", command=self.browse_cmake_file).grid(row=0, column=2, pady=5)
+        file_frame = ttk.Frame(control_panel)
+        file_frame.pack(fill=tk.X, pady=2)
         
-        # Target selection frame
-        target_frame = ttk.LabelFrame(input_frame, text="Target Selection", padding="5")
-        target_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W+tk.E, pady=5)
+        ttk.Label(file_frame, text="CMake File:").pack(side=tk.LEFT, padx=2)
+        self.cmake_file_var = tk.StringVar(value="S32K/EDx/build.cmake")
+        cmake_file_entry = ttk.Entry(file_frame, textvariable=self.cmake_file_var, width=50)
+        cmake_file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+        ttk.Button(file_frame, text="Browse", command=self.browse_cmake_file, width=8).pack(side=tk.LEFT, padx=2)
+        
+        # Target selection and controls
+        target_control_frame = ttk.Frame(control_panel)
+        target_control_frame.pack(fill=tk.X, pady=2)
+        
+        # Left side - Refresh button only
+        target_left_frame = ttk.Frame(target_control_frame)
+        target_left_frame.pack(side=tk.LEFT, fill=tk.Y)
+        
+        # Keep the select_all_var for internal use but don't show the checkbox
+        self.select_all_var = tk.BooleanVar(value=True)
+        
+        ttk.Button(target_left_frame, text="Refresh", command=self.refresh_targets, width=8).pack(side=tk.LEFT, padx=2)
+        
+        # Keep verbose var but set to True by default and don't show the checkbox
+        self.verbose_var = tk.BooleanVar(value=True)
+        
+        # Right side - Run button
+        target_right_frame = ttk.Frame(target_control_frame)
+        target_right_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.run_button = ttk.Button(target_right_frame, text="Run Check", command=self.run_check, width=10)
+        self.run_button.pack(side=tk.RIGHT, padx=2)
+        
+        # Target checkboxes frame
+        targets_container = ttk.LabelFrame(control_panel, text="Targets")
+        targets_container.pack(fill=tk.X, pady=2)
         
         # Target checkboxes
         self.target_vars = {}
         self.target_checkbuttons = {}
-        self.targets_frame = ttk.Frame(target_frame)
-        self.targets_frame.pack(fill=tk.X, expand=True)
+        self.targets_frame = ttk.Frame(targets_container)
+        self.targets_frame.pack(fill=tk.X, expand=True, padx=2, pady=2)
         
-        # Add "Select All" checkbox
-        self.select_all_var = tk.BooleanVar(value=True)
-        self.select_all_checkbutton = ttk.Checkbutton(
-            target_frame, 
-            text="Select All Targets", 
-            variable=self.select_all_var,
-            command=self.toggle_all_targets
-        )
-        self.select_all_checkbutton.pack(anchor=tk.W, pady=(0, 5))
-        
-        # Refresh targets button
-        ttk.Button(target_frame, text="Refresh Targets", command=self.refresh_targets).pack(anchor=tk.E)
-        
-        # Output file selection
-        ttk.Label(input_frame, text="Output File:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.output_file_var = tk.StringVar()
-        output_file_entry = ttk.Entry(input_frame, textvariable=self.output_file_var, width=50)
-        output_file_entry.grid(row=2, column=1, sticky=tk.W+tk.E, pady=5, padx=5)
-        ttk.Button(input_frame, text="Browse...", command=self.browse_output_file).grid(row=2, column=2, pady=5)
-        
-        # Verbose option
-        self.verbose_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(input_frame, text="Verbose Output", variable=self.verbose_var).grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=5)
-        
-        # Configure grid columns
-        input_frame.columnconfigure(1, weight=1)
-        
-        # Create the action frame
-        action_frame = ttk.Frame(main_frame)
-        action_frame.pack(fill=tk.X, pady=5)
-        
-        # Run button
-        self.run_button = ttk.Button(action_frame, text="Run Check", command=self.run_check)
-        self.run_button.pack(side=tk.RIGHT, padx=5)
+        # Set default output file in tool directory
+        self.output_file_var = tk.StringVar(value="component_tag_check_report.txt")
         
         # Progress bar
         self.progress_var = tk.DoubleVar()
-        self.progress = ttk.Progressbar(action_frame, variable=self.progress_var, maximum=100)
-        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.progress = ttk.Progressbar(control_panel, variable=self.progress_var, maximum=100)
+        self.progress.pack(fill=tk.X, expand=True, padx=2, pady=2)
         
         # Create a notebook with tabs
         self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=2)
         
         # Create the output frame (first tab)
-        output_frame = ttk.Frame(self.notebook, padding="10")
+        output_frame = ttk.Frame(self.notebook, padding="5")
         self.notebook.add(output_frame, text="Output")
         
         # Output text
-        self.output_text = scrolledtext.ScrolledText(output_frame, wrap=tk.WORD, width=80, height=20)
+        self.output_text = scrolledtext.ScrolledText(output_frame, wrap=tk.WORD)
         self.output_text.pack(fill=tk.BOTH, expand=True)
         self.output_text.config(state=tk.DISABLED)
         
         # Create the misaligned components frame (second tab)
-        self.misaligned_frame = ttk.Frame(self.notebook, padding="10")
+        self.misaligned_frame = ttk.Frame(self.notebook, padding="5")
         self.notebook.add(self.misaligned_frame, text="Misaligned Components")
         
         # Create a frame for the misaligned components list
@@ -145,14 +140,14 @@ class ComponentTagCheckerGUI:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Create a frame for the buttons
+        # Create a compact button bar
         button_frame = ttk.Frame(self.misaligned_frame)
-        button_frame.pack(fill=tk.X, pady=10)
+        button_frame.pack(fill=tk.X, pady=2)
         
         # Add buttons for selecting/deselecting all and updating selected components
-        ttk.Button(button_frame, text="Select All", command=self.select_all).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Deselect All", command=self.deselect_all).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Update Selected Components", command=self.update_selected_components).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="Select All", command=self.select_all, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="Deselect All", command=self.deselect_all, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="Update Selected", command=self.update_selected_components, width=15).pack(side=tk.RIGHT, padx=2)
         
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
@@ -373,13 +368,7 @@ class ComponentTagCheckerGUI:
                             error_message
                         ))
                         
-                        # If the error message indicates commits after tag, highlight it differently
-                        if "commits after the tag" in error_message or "uncommitted changes" in error_message:
-                            last_item = self.tree.get_children()[-1]
-                            self.tree.item(last_item, tags=("modified",))
-                            
-                # Configure tag colors
-                self.tree.tag_configure("modified", background="#FFF9C4")  # Light yellow for modified repos
+                        # No special highlighting for components with commits after tag
             
             # Print summary
             self.update_output("\n=== Summary ===")
@@ -490,20 +479,39 @@ class ComponentTagCheckerGUI:
                 # Try to set git tag if it's a git repository
                 try:
                     # Check if it's a git repository
-                    result = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
-                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    is_git_repo = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).returncode == 0
                     
-                    if result.returncode == 0:
-                        # Delete existing tag if it exists
-                        subprocess.run(['git', 'tag', '-d', component['expected_tag']], 
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    if is_git_repo:
+                        # Check if there are uncommitted changes
+                        uncommitted_changes = subprocess.run(['git', 'status', '--porcelain'], 
+                                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout.strip() != ""
                         
-                        # Create new tag
-                        subprocess.run(['git', 'tag', component['expected_tag']], 
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        if uncommitted_changes:
+                            # Commit the VERSION file change
+                            subprocess.run(['git', 'add', 'VERSION'], 
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            
+                            subprocess.run(['git', 'commit', '-m', f"Update VERSION file to {component['expected_tag']}"], 
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        
+                        # Delete existing tag if it exists (locally)
+                        subprocess.run(['git', 'tag', '-d', component['expected_tag']], 
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        
+                        # Create new tag with force flag
+                        subprocess.run(['git', 'tag', '-f', component['expected_tag']], 
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        
+                        # Verify the tag was created
+                        tag_check = subprocess.run(['git', 'tag', '-l', component['expected_tag']], 
+                                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        
+                        if component['expected_tag'] not in tag_check.stdout:
+                            raise Exception(f"Failed to create tag {component['expected_tag']}")
                 except Exception as e:
-                    # Ignore git errors, we've already created the VERSION file
-                    pass
+                    self.update_output(f"Warning: Git operation failed for {component['module_name']}: {e}")
+                    # Continue anyway, we've already created the VERSION file
                 
                 # Change back to the original directory
                 os.chdir(original_dir)
@@ -512,6 +520,13 @@ class ComponentTagCheckerGUI:
             except Exception as e:
                 failed_count += 1
                 self.update_output(f"Error updating {component['module_name']}: {e}")
+                
+                # Try to change back to the original directory if we're not there
+                try:
+                    if os.getcwd() != original_dir:
+                        os.chdir(original_dir)
+                except:
+                    pass
         
         # Show results
         if failed_count == 0:
