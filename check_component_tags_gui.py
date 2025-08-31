@@ -25,9 +25,12 @@ except ImportError:
 MISALIGNED_COMPONENTS = []
 
 class ComponentTagCheckerGUI:
+    # Add version number
+    VERSION = "1.0.0"
+    
     def __init__(self, root):
         self.root = root
-        self.root.title("Repo Maintenance")
+        self.root.title(f"Repo Maintenance Tool v{self.VERSION}")
         self.root.geometry("1000x700")
         self.root.minsize(1000, 700)
         
@@ -199,10 +202,17 @@ class ComponentTagCheckerGUI:
         
         # Local Changes tab has been removed
         
-        # Status bar
+        # Status bar with version number
         self.status_var = tk.StringVar(value="Ready")
-        status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        status_frame = ttk.Frame(root)
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        status_bar = ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Add version label to status bar
+        version_label = ttk.Label(status_frame, text=f"v{self.VERSION}", relief=tk.SUNKEN, anchor=tk.E)
+        version_label.pack(side=tk.RIGHT, padx=5)
         
         # Store misaligned components and components with local changes
         self.misaligned_components = []
@@ -210,6 +220,7 @@ class ComponentTagCheckerGUI:
         
         # Show a message to select a CMake file
         self.update_output("Welcome to the Repo Maintenance Tool!")
+        self.update_output(f"Version: {self.VERSION}")
         self.update_output("Please select a CMake file using the Browse button.")
         self.update_status("Ready")
     
