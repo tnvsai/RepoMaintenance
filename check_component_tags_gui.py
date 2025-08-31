@@ -208,8 +208,10 @@ class ComponentTagCheckerGUI:
         self.misaligned_components = []
         self.components_with_local_changes = []
         
-        # Try to refresh targets on startup
-        self.refresh_targets()
+        # Show a message to select a CMake file
+        self.update_output("Welcome to the Repo Maintenance Tool!")
+        self.update_output("Please select a CMake file using the Browse button.")
+        self.update_status("Ready")
     
     def browse_cmake_file(self):
         """Open a file dialog to select a CMake file."""
@@ -234,6 +236,10 @@ class ComponentTagCheckerGUI:
     def refresh_targets(self):
         """Refresh the list of targets from the CMake file."""
         cmake_file = self.cmake_file_var.get()
+        if not cmake_file:
+            self.update_output("Please select a CMake file first.")
+            return
+        
         if not os.path.exists(cmake_file):
             messagebox.showerror("Error", f"CMake file does not exist: {cmake_file}")
             return
