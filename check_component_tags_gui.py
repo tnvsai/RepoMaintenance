@@ -120,6 +120,44 @@ class ComponentTagCheckerGUI:
         self.local_changes_frame = ttk.Frame(self.notebook, padding="5")
         self.notebook.add(self.local_changes_frame, text="Local Changes")
         
+        # Create a frame for the local changes list
+        local_changes_list_frame = ttk.Frame(self.local_changes_frame)
+        local_changes_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create a treeview for the components with local changes
+        self.local_changes_tree = ttk.Treeview(local_changes_list_frame, 
+                                                 columns=("Module", "Target", "Path", "Change Location", "Status"), 
+                                                 show="headings")
+        
+        self.local_changes_tree.heading("Module", text="Module")
+        self.local_changes_tree.heading("Target", text="Target")
+        self.local_changes_tree.heading("Path", text="Path")
+        self.local_changes_tree.heading("Change Location", text="Change Location")
+        self.local_changes_tree.heading("Status", text="Status")
+        
+        self.local_changes_tree.column("Module", width=150)
+        self.local_changes_tree.column("Target", width=100)
+        self.local_changes_tree.column("Path", width=250)
+        self.local_changes_tree.column("Change Location", width=250)
+        self.local_changes_tree.column("Status", width=150)
+        
+        # Add a scrollbar to the local changes treeview
+        local_changes_tree_scroll = ttk.Scrollbar(local_changes_list_frame, orient="vertical", command=self.local_changes_tree.yview)
+        self.local_changes_tree.configure(yscrollcommand=local_changes_tree_scroll.set)
+        
+        # Pack the local changes treeview and scrollbar
+        self.local_changes_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        local_changes_tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Create a compact button bar for local changes tab
+        local_changes_button_frame = ttk.Frame(self.local_changes_frame)
+        local_changes_button_frame.pack(fill=tk.X, pady=2)
+        
+        # Add buttons for selecting/deselecting all and reverting selected changes
+        ttk.Button(local_changes_button_frame, text="Select All", command=self.select_all_local_changes, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(local_changes_button_frame, text="Deselect All", command=self.deselect_all_local_changes, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(local_changes_button_frame, text="Revert Changes", command=self.revert_selected_changes, width=15).pack(side=tk.RIGHT, padx=2)
+        
         # Create a frame for the misaligned components list
         list_frame = ttk.Frame(self.misaligned_frame)
         list_frame.pack(fill=tk.BOTH, expand=True)
@@ -140,33 +178,7 @@ class ComponentTagCheckerGUI:
         self.tree.column("Actual Tag", width=100)
         self.tree.column("Status", width=250)
         
-        # Create a frame for the local changes list
-        local_changes_list_frame = ttk.Frame(self.local_changes_frame)
-        local_changes_list_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Create a treeview for the components with local changes
-        self.local_changes_tree = ttk.Treeview(local_changes_list_frame, 
-                                              columns=("Module", "Target", "Path", "Change Location", "Status"), 
-                                              show="headings")
-        self.local_changes_tree.heading("Module", text="Module")
-        self.local_changes_tree.heading("Target", text="Target")
-        self.local_changes_tree.heading("Path", text="Path")
-        self.local_changes_tree.heading("Change Location", text="Change Location")
-        self.local_changes_tree.heading("Status", text="Status")
-        
-        self.local_changes_tree.column("Module", width=150)
-        self.local_changes_tree.column("Target", width=80)
-        self.local_changes_tree.column("Path", width=250)
-        self.local_changes_tree.column("Change Location", width=250)
-        self.local_changes_tree.column("Status", width=150)
-        
-        # Add a scrollbar to the local changes treeview
-        local_changes_tree_scroll = ttk.Scrollbar(local_changes_list_frame, orient="vertical", command=self.local_changes_tree.yview)
-        self.local_changes_tree.configure(yscrollcommand=local_changes_tree_scroll.set)
-        
-        # Pack the local changes treeview and scrollbar
-        self.local_changes_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        local_changes_tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        # Local Changes tab has been removed
         
         # Add a scrollbar to the treeview
         tree_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
@@ -185,14 +197,7 @@ class ComponentTagCheckerGUI:
         ttk.Button(button_frame, text="Deselect All", command=self.deselect_all, width=10).pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="Update Selected", command=self.update_selected_components, width=15).pack(side=tk.RIGHT, padx=2)
         
-        # Create a compact button bar for local changes tab
-        local_changes_button_frame = ttk.Frame(self.local_changes_frame)
-        local_changes_button_frame.pack(fill=tk.X, pady=2)
-        
-        # Add buttons for selecting/deselecting all and reverting selected changes
-        ttk.Button(local_changes_button_frame, text="Select All", command=self.select_all_local_changes, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(local_changes_button_frame, text="Deselect All", command=self.deselect_all_local_changes, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(local_changes_button_frame, text="Revert Changes", command=self.revert_selected_changes, width=15).pack(side=tk.RIGHT, padx=2)
+        # Local Changes tab has been removed
         
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
@@ -287,10 +292,11 @@ class ComponentTagCheckerGUI:
         self.output_text.delete(1.0, tk.END)
         self.output_text.config(state=tk.DISABLED)
         
-        # Clear the treeviews
+        # Clear the misaligned components treeview
         for item in self.tree.get_children():
             self.tree.delete(item)
         
+        # Clear the local changes treeview
         for item in self.local_changes_tree.get_children():
             self.local_changes_tree.delete(item)
         
@@ -436,56 +442,35 @@ class ComponentTagCheckerGUI:
                             error_message
                         ))
                         
-                        # Check if this component has uncommitted changes in its own directory
-                        if "Tag is correct but there are uncommitted changes" in error_message:
-                            # Add to the components with local changes list
-                            self.components_with_local_changes.append({
-                                'target': target_name,
-                                'module_name': module_name,
-                                'path': path,
-                                'change_location': resolve_path(path, cmake_file_dir),
-                                'error_message': error_message,
-                                'change_type': 'self'
-                            })
-                            
-                            # Add to the local changes treeview
-                            self.local_changes_tree.insert("", "end", values=(
-                                module_name,
-                                target_name,
-                                path,
-                                resolve_path(path, cmake_file_dir),
-                                "Has uncommitted changes in component directory"
-                            ))
+                    # Check if this component has uncommitted changes in its own directory
+                    if error_message and "Tag is correct but there are uncommitted changes" in error_message:
+                        # Add to the components with local changes list
+                        self.components_with_local_changes.append({
+                            'target': target_name,
+                            'module_name': module_name,
+                            'path': path,
+                            'change_location': resolve_path(path, cmake_file_dir),
+                            'status': "Has uncommitted changes in component directory",
+                            'change_type': 'self'  # Add change_type field
+                        })
                         
-                        # No special highlighting for components with commits after tag
-            
-            # Print summary
-            self.update_output("\n=== Summary ===")
-            if self.misaligned_components:
-                self.update_output(f"Found {len(self.misaligned_components)} misaligned components out of {total_components} total components:")
-                for component in self.misaligned_components:
-                    self.update_output(f"- {component['module_name']} (target: {component['target']})")
-                    self.update_output(f"  Expected tag: {component['expected_tag']}")
-                    if component['actual_tag']:
-                        self.update_output(f"  Actual tag: {component['actual_tag']}")
-                    self.update_output(f"  Error: {component['error_message']}")
-                
-                # Calculate percentage of misaligned components
-                percentage = (len(self.misaligned_components) / total_components) * 100
-                self.update_output(f"\nPercentage of misaligned components: {percentage:.2f}%")
-                
-                # Switch to the misaligned components tab
-                self.notebook.select(1)
-                
-                # If we have components with local changes, show a message
-                if self.components_with_local_changes:
-                    # Count components with changes in their own directories
-                    self_changes = sum(1 for c in self.components_with_local_changes if c.get('change_type') == 'self')
-                    if self_changes > 0:
-                        self.update_output(f"\nFound {self_changes} components with uncommitted changes in their own directories.")
-                    # Switch to the local changes tab if there are components with local changes
-                    if len(self.components_with_local_changes) > 0:
-                        self.notebook.select(2)
+                        # Add to the local changes treeview
+                        self.local_changes_tree.insert("", "end", values=(
+                            module_name,
+                            target_name,
+                            path,
+                            resolve_path(path, cmake_file_dir),
+                            "Has uncommitted changes in component directory"
+                        ))
+                        
+            # After checking all components, check if we found any with local changes
+            if self.components_with_local_changes:
+                self_changes = sum(1 for c in self.components_with_local_changes if c.get('change_type') == 'self')
+                if self_changes > 0:
+                    self.update_output(f"\nFound {self_changes} components with uncommitted changes in their own directories.")
+                    self.notebook.select(2)  # Switch to the Local Changes tab
+                else:
+                    self.update_output("\nNo components with local changes found.")
             else:
                 self.update_output(f"All {total_components} components are aligned with their expected tags.")
             
@@ -500,13 +485,7 @@ class ComponentTagCheckerGUI:
                         if self.misaligned_components:
                             f.write(f"Misaligned components: {len(self.misaligned_components)} ({percentage:.2f}%)\n\n")
                             
-                            # Include information about components with local changes
-                            if self.components_with_local_changes:
-                                # Count components with changes in their own directories
-                                self_changes = sum(1 for c in self.components_with_local_changes if c.get('change_type') == 'self')
-                                if self_changes > 0:
-                                    f.write(f"Components with uncommitted changes in their own directories: {self_changes}\n")
-                                f.write("\n")
+                            # We're not showing local changes from each component anymore
                             
                             f.write("Details of misaligned components:\n")
                             for component in self.misaligned_components:
@@ -584,7 +563,6 @@ class ComponentTagCheckerGUI:
         
         for component in selected_components:
             try:
-                change_type = component.get('change_type', 'unknown')
                 change_location = component.get('change_location', '')
                 
                 if not change_location:
