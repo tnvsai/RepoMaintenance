@@ -12,6 +12,7 @@ import sys
 import subprocess
 import argparse
 from pathlib import Path
+import time
 
 def parse_cmake_file(cmake_file_path):
     """
@@ -126,6 +127,71 @@ def resolve_path(path, cmake_file_dir):
     
     return path
 
+def check_tag_reuse(repo_path, tag_name):
+    """
+    Check if a tag has been reused using a single git command.
+    This is much faster than running multiple git commands.
+    
+    Args:
+        repo_path (str): Path to the git repository
+        tag_name (str): Name of the tag to check
+        
+    Returns:
+        tuple: (is_integrity_ok, error_message)
+    """
+    try:
+        # This single command gets both the tag object type and the commit it points to
+        result = subprocess.run(
+            ['git', '-C', repo_path, 'cat-file', '-p', tag_name],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1
+        )
+        
+        if result.returncode != 0:
+            return False, f"Failed to inspect tag: {result.stderr}"
+            
+        # For annotated tags, the output includes the tagger info with date
+        # For lightweight tags, we just get the commit object
+        output = result.stdout
+        
+        # Check if this is an annotated tag (which includes creation date)
+        if 'tagger ' in output:
+            # Extract the tagger date and the commit hash
+            tagger_line = re.search(r'tagger .+? (\d+) [+-]\d+', output)
+            object_line = re.search(r'object ([0-9a-f]+)', output)
+            
+            if tagger_line and object_line:
+                tag_date = int(tagger_line.group(1))
+                commit_hash = object_line.group(1)
+                
+                # Get the commit date with a single command
+                commit_date_result = subprocess.run(
+                    ['git', '-C', repo_path, 'show', '-s', '--format=%at', commit_hash],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1
+                )
+                
+                if commit_date_result.returncode == 0:
+                    commit_date = int(commit_date_result.stdout.strip())
+                    
+                    # If tag date is earlier than commit date, the tag was likely moved
+                    if tag_date < commit_date:
+                        return False, f"Tag {tag_name} appears to have been reused (created before its commit)"
+        
+        # For lightweight tags or if we couldn't parse dates, fall back to a simpler check
+        # Check if VERSION file content matches the tag name
+        version_check = subprocess.run(
+            ['git', '-C', repo_path, 'show', f'{tag_name}:VERSION'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1
+        )
+        
+        if version_check.returncode == 0 and version_check.stdout.strip() != tag_name:
+            return False, f"VERSION file content doesn't match tag name"
+            
+        return True, None
+    except subprocess.TimeoutExpired:
+        return False, "Git command timed out"
+    except Exception as e:
+        return False, f"Error checking tag: {e}"
+
 def check_component_tag(component, cmake_file_dir):
     """
     Check if the component's path is aligned with the tag mentioned in the CMake file.
@@ -189,6 +255,11 @@ def check_component_tag(component, cmake_file_dir):
                 if actual_tag != expected_tag:
                     return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}"
                 
+                # Check if the tag has been reused
+                integrity_ok, integrity_error = check_tag_reuse(resolved_path, actual_tag)
+                if not integrity_ok:
+                    return False, actual_tag, expected_tag, integrity_error
+                
                 if tag_commit != head_commit:
                     # Count commits between tag and HEAD
                     commit_count_result = subprocess.run(['git', '-C', resolved_path, 'rev-list', '--count', f"{actual_tag}..HEAD"], 
@@ -218,6 +289,17 @@ def check_component_tag(component, cmake_file_dir):
         with open(version_file, 'r') as f:
             actual_tag = f.read().strip()
             if actual_tag == expected_tag:
+                # For VERSION file, we can't check if tag was reused
+                # But we can check if the VERSION file was modified after creation
+                # by comparing file modification time with current time
+                try:
+                    file_mtime = os.path.getmtime(version_file)
+                    current_time = time.time()
+                    # If file was modified in the last hour, it might be suspicious
+                    if current_time - file_mtime < 3600:  # 1 hour in seconds
+                        return False, actual_tag, expected_tag, "VERSION file was recently modified, possible tag reuse"
+                except Exception:
+                    pass
                 return True, actual_tag, expected_tag, None
             else:
                 return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}"
