@@ -16,7 +16,7 @@ import threading
 
 # Import the component tag checker module
 try:
-    from check_component_tags import parse_cmake_file, check_component_tag, resolve_path
+    from check_component_tags import parse_cmake_file, check_component_tag, resolve_path, clone_component
 except ImportError:
     messagebox.showerror("Error", "Could not import check_component_tags.py. Make sure it's in the same directory.")
     sys.exit(1)
@@ -93,6 +93,15 @@ class ComponentTagCheckerGUI:
         self.target_checkbuttons = {}
         self.targets_frame = ttk.Frame(targets_container)
         self.targets_frame.pack(fill=tk.X, expand=True, padx=2, pady=2)
+        
+        # Add base URL field
+        url_frame = ttk.Frame(control_panel)
+        url_frame.pack(fill=tk.X, pady=2)
+        
+        ttk.Label(url_frame, text="Repository Base URL:").pack(side=tk.LEFT, padx=2)
+        self.base_url_var = tk.StringVar(value="https://bitbucket.harman.com/scm/casco/")
+        base_url_entry = ttk.Entry(url_frame, textvariable=self.base_url_var, width=50)
+        base_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
         
         # Set default output file in tool directory
         self.output_file_var = tk.StringVar(value="component_tag_check_report.txt")
@@ -420,7 +429,7 @@ class ComponentTagCheckerGUI:
                         self.update_output(f"  Expected tag: {expected_tag}")
                     else:
                         self.update_output(f"\nChecking component: {module_name}...", end="")
-                    is_aligned, actual_tag, expected_tag, error_message = check_component_tag(component, cmake_file_dir)
+                    is_aligned, actual_tag, expected_tag, error_message, path_exists = check_component_tag(component, cmake_file_dir)
                     
                     if is_aligned:
                         if verbose:
@@ -445,7 +454,8 @@ class ComponentTagCheckerGUI:
                             'expected_tag': expected_tag,
                             'actual_tag': actual_tag if actual_tag else "",
                             'error_message': error_message,
-                            'resolved_path': resolve_path(path, cmake_file_dir)
+                            'resolved_path': resolve_path(path, cmake_file_dir),
+                            'path_exists': path_exists
                         }
                         self.misaligned_components.append(component_info)
                         
@@ -500,6 +510,8 @@ class ComponentTagCheckerGUI:
                         f.write(f"Total components checked: {total_components}\n")
                         
                         if self.misaligned_components:
+                            # Calculate percentage of misaligned components
+                            percentage = (len(self.misaligned_components) / total_components) * 100
                             f.write(f"Misaligned components: {len(self.misaligned_components)} ({percentage:.2f}%)\n\n")
                             
                             # We're not showing local changes from each component anymore
@@ -661,27 +673,75 @@ class ComponentTagCheckerGUI:
         self.update_status("Ready")
     
     def update_selected_components(self):
-        """Update selected components to their expected tags."""
+        """Update selected components to their expected tags or clone if missing."""
         selected_items = self.tree.selection()
         if not selected_items:
             messagebox.showinfo("Info", "No components selected")
             return
         
         # Confirm update
-        if not messagebox.askyesno("Confirm Update", "Are you sure you want to update the selected components to their expected tags?"):
+        if not messagebox.askyesno("Confirm Update", "Are you sure you want to update the selected components? This will clone missing components and update existing ones to their expected tags."):
             return
         
         # Get selected components
         selected_indices = [self.tree.index(item) for item in selected_items]
         selected_components = [self.misaligned_components[i] for i in selected_indices]
         
+        # Get base URL
+        base_url = self.base_url_var.get()
+        
         # Update components
         updated_count = 0
+        cloned_count = 0
         failed_count = 0
         
         for component in selected_components:
             try:
-                self.update_status(f"Updating {component['module_name']}...")
+                self.update_status(f"Processing {component['module_name']}...")
+                
+                # Check if the path exists
+                path_exists = component.get('path_exists', os.path.exists(component['resolved_path']))
+                
+                if not path_exists:
+                    # Clone the component
+                    self.update_output(f"Cloning {component['module_name']} to {component['resolved_path']}...")
+                    
+                    try:
+                        # Format the component name for the URL (lowercase and remove special characters)
+                        repo_name = re.sub(r'[^a-zA-Z0-9._-]', '', component['module_name'].lower())
+                        clone_url = f"{base_url}{repo_name}.git"
+                        self.update_output(f"Using URL: {clone_url}")
+                        
+                        # Make sure the component has a tag (either in 'tag' or 'expected_tag' field)
+                        tag = None
+                        if 'tag' in component and component['tag']:
+                            tag = component['tag']
+                        elif 'expected_tag' in component and component['expected_tag']:
+                            tag = component['expected_tag']
+                            # Update the component with the tag for cloning
+                            component['tag'] = tag
+                        
+                        if not tag:
+                            self.update_output(f"Error: Component {component['module_name']} is missing a tag field")
+                            failed_count += 1
+                            continue
+                        
+                        self.update_output(f"Using tag: {tag}")
+                        
+                        success, message = clone_component(component, os.path.dirname(os.path.abspath(self.cmake_file_var.get())), base_url)
+                    except Exception as e:
+                        self.update_output(f"Error preparing to clone {component['module_name']}: {str(e)}")
+                        failed_count += 1
+                        continue
+                    
+                    if success:
+                        self.update_output(f"Successfully cloned {component['module_name']}")
+                        cloned_count += 1
+                        continue
+                    else:
+                        self.update_output(f"Failed to clone {component['module_name']}: {message}")
+                        failed_count += 1
+                        continue
                 
                 # Change to the component directory
                 original_dir = os.getcwd()
@@ -744,13 +804,21 @@ class ComponentTagCheckerGUI:
                     pass
         
         # Show results
+        result_message = ""
+        if cloned_count > 0:
+            result_message += f"Cloned {cloned_count} components. "
+        if updated_count > 0:
+            result_message += f"Updated {updated_count} components. "
+        if failed_count > 0:
+            result_message += f"{failed_count} operations failed."
+        
         if failed_count == 0:
-            messagebox.showinfo("Update Complete", f"Successfully updated {updated_count} components")
+            messagebox.showinfo("Operation Complete", result_message.strip())
         else:
-            messagebox.showwarning("Update Complete", f"Updated {updated_count} components, {failed_count} failed")
+            messagebox.showwarning("Operation Complete", result_message.strip())
         
         # Inform user that they need to run the check again to see updated results
-        self.update_output("\nChanges reverted. Run check again to see updated results.")
+        self.update_output("\nUpdate complete. Run check again to see updated results.")
         self.update_status("Ready")
 
 def main():

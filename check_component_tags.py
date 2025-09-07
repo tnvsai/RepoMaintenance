@@ -202,7 +202,7 @@ def check_component_tag(component, cmake_file_dir):
         cmake_file_dir (str): Directory of the CMake file
         
     Returns:
-        tuple: (is_aligned, actual_tag, expected_tag, error_message)
+        tuple: (is_aligned, actual_tag, expected_tag, error_message, path_exists)
     """
     module_name = component['module_name']
     path = component['path']
@@ -212,8 +212,9 @@ def check_component_tag(component, cmake_file_dir):
     resolved_path = resolve_path(path, cmake_file_dir)
     
     # Check if the path exists
-    if not os.path.exists(resolved_path):
-        return False, None, expected_tag, f"Path does not exist: {resolved_path}"
+    path_exists = os.path.exists(resolved_path)
+    if not path_exists:
+        return False, None, expected_tag, f"Path does not exist: {resolved_path}", False
     
     # Try to determine the actual tag
     # This could be done by checking a version file, git tag, etc.
@@ -253,12 +254,12 @@ def check_component_tag(component, cmake_file_dir):
                 os.chdir(original_dir)
                 
                 if actual_tag != expected_tag:
-                    return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}"
+                    return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}", True
                 
                 # Check if the tag has been reused
                 integrity_ok, integrity_error = check_tag_reuse(resolved_path, actual_tag)
                 if not integrity_ok:
-                    return False, actual_tag, expected_tag, integrity_error
+                    return False, actual_tag, expected_tag, integrity_error, True
                 
                 if tag_commit != head_commit:
                     # Count commits between tag and HEAD
@@ -266,12 +267,12 @@ def check_component_tag(component, cmake_file_dir):
                                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                     commit_count = commit_count_result.stdout.strip() if commit_count_result.returncode == 0 else "unknown number of"
                     
-                    return False, actual_tag, expected_tag, f"Tag is correct but there are {commit_count} commits after the tag"
+                    return False, actual_tag, expected_tag, f"Tag is correct but there are {commit_count} commits after the tag", True
                 
                 if uncommitted_changes:
-                    return False, actual_tag, expected_tag, f"Tag is correct but there are uncommitted changes"
+                    return False, actual_tag, expected_tag, f"Tag is correct but there are uncommitted changes", True
                 
-                return True, actual_tag, expected_tag, None
+                return True, actual_tag, expected_tag, None, True
         
         # Change back to the original directory if we didn't return yet
         os.chdir(original_dir)
@@ -297,12 +298,12 @@ def check_component_tag(component, cmake_file_dir):
                     current_time = time.time()
                     # If file was modified in the last hour, it might be suspicious
                     if current_time - file_mtime < 3600:  # 1 hour in seconds
-                        return False, actual_tag, expected_tag, "VERSION file was recently modified, possible tag reuse"
+                        return False, actual_tag, expected_tag, "VERSION file was recently modified, possible tag reuse", True
                 except Exception:
                     pass
-                return True, actual_tag, expected_tag, None
+                return True, actual_tag, expected_tag, None, True
             else:
-                return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}"
+                return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}", True
     
     # Method 3: Check if there's a manifest file or similar
     manifest_file = os.path.join(resolved_path, 'manifest.json')
@@ -314,9 +315,9 @@ def check_component_tag(component, cmake_file_dir):
                 if 'version' in manifest:
                     actual_tag = manifest['version']
                     if actual_tag == expected_tag:
-                        return True, actual_tag, expected_tag, None
+                        return True, actual_tag, expected_tag, None, True
                     else:
-                        return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}"
+                        return False, actual_tag, expected_tag, f"Tag mismatch: expected {expected_tag}, got {actual_tag}", True
         except Exception as e:
             pass
     
@@ -324,9 +325,81 @@ def check_component_tag(component, cmake_file_dir):
     error_message = f"Could not determine the actual tag for {module_name} at {resolved_path}"
     
     
-    return False, None, expected_tag, error_message
+    return False, None, expected_tag, error_message, True
 
 # Keep the existing function as is
+def clone_component(component, cmake_file_dir, base_url="https://bitbucket.harman.com/scm/casco/"):
+    """
+    Clone a component repository if it doesn't exist.
+    
+    Args:
+        component (dict): Component details
+        cmake_file_dir (str): Directory of the CMake file
+        base_url (str): Base URL for the git repository
+        
+    Returns:
+        tuple: (success, message)
+    """
+    module_name = component['module_name']
+    path = component['path']
+    expected_tag = component['tag']
+    
+    # Resolve the path
+    resolved_path = resolve_path(path, cmake_file_dir)
+    
+    # Create parent directory if it doesn't exist
+    parent_dir = os.path.dirname(resolved_path)
+    if not os.path.exists(parent_dir):
+        try:
+            os.makedirs(parent_dir)
+        except Exception as e:
+            return False, f"Failed to create directory {parent_dir}: {e}"
+    
+    # Format the component name for the URL (lowercase)
+    # Remove any special characters and convert to lowercase
+    repo_name = re.sub(r'[^a-zA-Z0-9._-]', '', module_name.lower())
+    clone_url = f"{base_url}{repo_name}.git"
+    
+    print(f"Attempting to clone from URL: {clone_url}")
+    print(f"To path: {resolved_path}")
+    
+    try:
+        # Clone the repository
+        result = subprocess.run(
+            ['git', 'clone', clone_url, resolved_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+            return False, f"Failed to clone repository: {error_msg}"
+        
+        # Change to the cloned directory
+        original_dir = os.getcwd()
+        os.chdir(resolved_path)
+        
+        # Checkout the specific tag
+        tag_result = subprocess.run(
+            ['git', 'checkout', expected_tag],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        
+        # Change back to the original directory
+        os.chdir(original_dir)
+        
+        if tag_result.returncode != 0:
+            return False, f"Failed to checkout tag {expected_tag}: {tag_result.stderr}"
+        
+        return True, f"Successfully cloned {module_name} at tag {expected_tag}"
+    except Exception as e:
+        # Change back to the original directory in case of an error
+        try:
+            if 'original_dir' in locals():
+                os.chdir(original_dir)
+        except:
+            pass
+        return False, f"Error cloning component: {e}"
+
 def check_parent_directories_for_changes(path):
     """
     Check parent directories for local changes in git repositories.
@@ -430,7 +503,7 @@ def main():
             else:
                 print(f"\nChecking component: {module_name}...", end="", flush=True)
             
-            is_aligned, actual_tag, expected_tag, error_message = check_component_tag(component, cmake_file_dir)
+            is_aligned, actual_tag, expected_tag, error_message, path_exists = check_component_tag(component, cmake_file_dir)
             
             if is_aligned:
                 if args.verbose:
@@ -454,7 +527,8 @@ def main():
                     'path': path,
                     'expected_tag': expected_tag,
                     'actual_tag': actual_tag,
-                    'error_message': error_message
+                    'error_message': error_message,
+                    'path_exists': path_exists
                 })
     
     # Print summary
