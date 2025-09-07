@@ -103,8 +103,7 @@ class ComponentTagCheckerGUI:
         base_url_entry = ttk.Entry(url_frame, textvariable=self.base_url_var, width=50)
         base_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
         
-        # Set default output file in tool directory
-        self.output_file_var = tk.StringVar(value="component_tag_check_report.txt")
+        # No longer need output file variable
         
         # Progress bar
         self.progress_var = tk.DoubleVar()
@@ -243,15 +242,7 @@ class ComponentTagCheckerGUI:
             self.cmake_file_var.set(file_path)
             self.refresh_targets()
     
-    def browse_output_file(self):
-        """Open a file dialog to select an output file."""
-        file_path = filedialog.asksaveasfilename(
-            title="Select Output File",
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
-            defaultextension=".txt"
-        )
-        if file_path:
-            self.output_file_var.set(file_path)
+    # Removed browse_output_file method as we no longer save to file
     
     def refresh_targets(self):
         """Refresh the list of targets from the CMake file."""
@@ -340,7 +331,6 @@ class ComponentTagCheckerGUI:
         """Run the component tag check."""
         cmake_file = self.cmake_file_var.get()
         selected_targets = [target for target, var in self.target_vars.items() if var.get()]
-        output_file = self.output_file_var.get()
         verbose = self.verbose_var.get()
         
         if not os.path.exists(cmake_file):
@@ -356,11 +346,11 @@ class ComponentTagCheckerGUI:
         self.clear_results()
         
         # Run the check in a separate thread
-        thread = threading.Thread(target=self.run_check_thread, args=(cmake_file, selected_targets, output_file, verbose))
+        thread = threading.Thread(target=self.run_check_thread, args=(cmake_file, selected_targets, verbose))
         thread.daemon = True
         thread.start()
     
-    def run_check_thread(self, cmake_file, selected_targets, output_file, verbose):
+    def run_check_thread(self, cmake_file, selected_targets, verbose):
         """Run the component tag check in a separate thread."""
         try:
             # Parse the CMake file
@@ -501,35 +491,27 @@ class ComponentTagCheckerGUI:
             else:
                 self.update_output(f"All {total_components} components are aligned with their expected tags.")
             
-            # Write report to file if specified
-            if output_file:
-                try:
-                    with open(output_file, 'w') as f:
-                        f.write("=== Component Tag Alignment Report ===\n\n")
-                        f.write(f"CMake file: {cmake_file}\n")
-                        f.write(f"Total components checked: {total_components}\n")
-                        
-                        if self.misaligned_components:
-                            # Calculate percentage of misaligned components
-                            percentage = (len(self.misaligned_components) / total_components) * 100
-                            f.write(f"Misaligned components: {len(self.misaligned_components)} ({percentage:.2f}%)\n\n")
-                            
-                            # We're not showing local changes from each component anymore
-                            
-                            f.write("Details of misaligned components:\n")
-                            for component in self.misaligned_components:
-                                f.write(f"- {component['module_name']} (target: {component['target']})\n")
-                                f.write(f"  Path: {component['path']}\n")
-                                f.write(f"  Expected tag: {component['expected_tag']}\n")
-                                if component['actual_tag']:
-                                    f.write(f"  Actual tag: {component['actual_tag']}\n")
-                                f.write(f"  Error: {component['error_message']}\n\n")
-                        else:
-                            f.write("All components are aligned with their expected tags.\n")
-                    
-                    self.update_output(f"\nReport written to {output_file}")
-                except Exception as e:
-                    self.update_output(f"Error writing report to {output_file}: {e}")
+            # Display report summary in the output tab
+            self.update_output("\n=== Component Tag Alignment Report ===")
+            self.update_output(f"CMake file: {cmake_file}")
+            self.update_output(f"Total components checked: {total_components}")
+            
+            if self.misaligned_components:
+                # Calculate percentage of misaligned components
+                percentage = (len(self.misaligned_components) / total_components) * 100
+                self.update_output(f"Misaligned components: {len(self.misaligned_components)} ({percentage:.2f}%)")
+                
+                self.update_output("\nDetails of misaligned components:")
+                for component in self.misaligned_components:
+                    self.update_output(f"- {component['module_name']} (target: {component['target']})")
+                    self.update_output(f"  Path: {component['path']}")
+                    self.update_output(f"  Expected tag: {component['expected_tag']}")
+                    if component['actual_tag']:
+                        self.update_output(f"  Actual tag: {component['actual_tag']}")
+                    self.update_output(f"  Error: {component['error_message']}")
+                    self.update_output("")  # Add an empty line between components
+            else:
+                self.update_output("All components are aligned with their expected tags.")
             
             self.update_status("Ready")
         except Exception as e:
