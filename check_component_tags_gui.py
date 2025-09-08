@@ -34,11 +34,12 @@ class ComponentTagCheckerGUI:
         self.root.geometry("1000x700")
         self.root.minsize(1000, 700)
         
-        # Set icon if available
+        # Set icon using absolute path to ensure it's found
+        icon_path = "C:\\Users\\NTadepalli\\Desktop\\CustomTool\\RepoMaintenance\\icon.ico"
         try:
-            self.root.iconbitmap("icon.ico")
-        except:
-            pass
+            self.root.iconbitmap(icon_path)
+        except Exception as e:
+            print(f"Failed to set icon: {e}")
         
         # Create the main frame
         main_frame = ttk.Frame(root, padding="5")
